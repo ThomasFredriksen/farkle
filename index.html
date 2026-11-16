@@ -176,6 +176,10 @@ button{cursor:pointer;touch-action:manipulation}
 .recap{margin:0 0 6px;text-align:center;font-size:22px;font-weight:800;color:var(--orange)}
 .tally{margin:0 0 18px;text-align:center;font-size:19px;color:var(--muted);line-height:1.5}
 .tally b{color:var(--ink)}
+.sharelink{display:block;margin:-6px auto 6px;font-size:18px}
+.sharebtn{width:100%;min-height:56px;font-size:19px;color:var(--navy);background:#fff;border:2px solid var(--navy)}
+#toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translate(-50%,20px);background:var(--navy);color:#fff;font-weight:700;padding:14px 20px;border-radius:14px;z-index:80;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:86%;text-align:center}
+#toast.show{opacity:1;transform:translate(-50%,0)}
 .srows{margin-top:12px;display:flex;flex-direction:column;gap:8px;text-align:left}
 .srow{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:baseline;padding:12px 14px;border:2px solid var(--line);border-radius:14px;background:#fff}
 .srow{width:100%;font-family:inherit;text-align:left}button.srow:active{background:var(--ivory)}
@@ -540,6 +544,54 @@ function renderDock(){
 function targetField(){
   return '<div class="field"><label for="target">Winning score<small>0 turns it off</small></label><input id="target" type="text" readonly inputmode="none" enterkeyhint="done" value="' + S.target + '"></div>';
 }
+function dateStr(t){ try{ return new Date(t || Date.now()).toLocaleDateString(undefined, {day:'numeric', month:'short'}); }catch(e){ return ''; } }
+function winsLine(names){
+  var seen = {}, out = [];
+  names.forEach(function(n){ var k = String(n).trim().toLowerCase(); if(!seen[k]){ seen[k] = 1; out.push({n:String(n).trim(), w:S.wins[k] || 0}); } });
+  out.sort(function(a,b){ return b.w - a.w || a.n.toLowerCase().localeCompare(b.n.toLowerCase()); });
+  return out.map(function(o){ return o.n + ' ' + o.w; }).join(' · ');
+}
+function lastGameText(){
+  var g = S.hist[S.hist.length - 1]; if(!g) return '';
+  var order = g.n.map(function(n,i){ return {n:String(n).trim(), s:g.s[i]}; }).sort(function(a,b){ return b.s - a.s; });
+  var rounds = 0; (g.t || []).forEach(function(t){ if(t.length > rounds) rounds = t.length; });
+  var t = '🎲 Farkle · ' + dateStr(g.d) + '\n🏆 ' + g.w + ' won with ' + fmt(order.filter(function(o){ return o.n.toLowerCase() === String(g.w).trim().toLowerCase(); })[0].s) + '\n';
+  order.forEach(function(o){ if(o.n.toLowerCase() !== String(g.w).trim().toLowerCase()) t += o.n + ' ' + fmt(o.s) + '\n'; });
+  if(rounds) t += rounds + ' rounds\n';
+  return t + 'Wins so far: ' + winsLine(g.n);
+}
+function standingsText(){
+  var disp = {}, games = {}, best = {};
+  S.roster.forEach(function(n){ disp[n.trim().toLowerCase()] = n.trim(); });
+  S.hist.forEach(function(g){ g.n.forEach(function(n,i){ var k = String(n).trim().toLowerCase(); if(!disp[k]) disp[k] = String(n).trim(); games[k] = (games[k] || 0) + 1; if(!(k in best) || g.s[i] > best[k]) best[k] = g.s[i]; }); });
+  var keys = {}; Object.keys(S.wins).forEach(function(k){ if(S.wins[k] > 0) keys[k] = 1; }); Object.keys(games).forEach(function(k){ keys[k] = 1; });
+  var list = Object.keys(keys).map(function(k){ return {k:k, n:disp[k] || (k.charAt(0).toUpperCase() + k.slice(1)), w:S.wins[k] || 0, g:games[k] || 0, b:best[k]}; });
+  list.sort(function(a,b){ return b.w - a.w || a.n.toLowerCase().localeCompare(b.n.toLowerCase()); });
+  var t = '🎲 Farkle standings · ' + dateStr() + '\n';
+  list.forEach(function(r,i){ t += (i + 1) + '. ' + r.n + ' – ' + r.w + (r.w === 1 ? ' win' : ' wins') + (r.g ? ' from ' + r.g + (r.g === 1 ? ' game' : ' games') : '') + (r.b !== undefined ? ', best ' + fmt(r.b) : '') + '\n'; });
+  return t.replace(/\s+$/, '');
+}
+function toast(msg){
+  var el = document.getElementById('toast');
+  if(!el){ el = document.createElement('div'); el.id = 'toast'; el.setAttribute('role', 'status'); document.body.appendChild(el); }
+  el.textContent = msg; el.className = 'show';
+  clearTimeout(toast.t); toast.t = setTimeout(function(){ el.className = ''; }, 3200);
+}
+function shareText(text){
+  if(!text) return;
+  if(navigator.share){
+    navigator.share({text: text}).catch(function(err){ if(err && err.name === 'AbortError') return; copyText(text); });
+  } else { copyText(text); }
+}
+function copyText(text){
+  var done = function(){ toast('Copied. Paste it into a message.'); };
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(text).then(done, function(){ toast('Could not share from this phone.'); }); return; }
+  }catch(e){}
+  try{
+    var ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); done();
+  }catch(e2){ toast('Could not share from this phone.'); }
+}
 function hasStats(){ return S.hist.length > 0 || Object.keys(S.wins).some(function(k){ return S.wins[k] > 0; }); }
 function playerStatsHtml(k){
   var name = null, games = [];
@@ -689,7 +741,8 @@ function statsHtml(){
   } else if(!S.hist.length){
     h += '<p class="muted" style="text-align:center;margin-top:16px">Best scores and games together will appear here as you finish games.</p>';
   }
-  h += '<div class="stackb" style="margin-top:6px"><button class="big alt" data-act="statsback"><span>‹ Back</span></button></div></div>';
+  h += '<div class="minor"><button class="btn sharebtn" data-act="shareStats">\u2197 Share standings</button></div>';
+  h += '<div class="stackb" style="margin-top:6px"><button class="big alt" data-act="statsback"><span>\u2039 Back</span></button></div></div>';
   return h;
 }
 function homeHtml(){
@@ -705,6 +758,7 @@ function homeHtml(){
   var anyWins = S.names.some(function(n,i){ return (S.wins[wkey(i)] || 0) > 0; });
   var s = '<div class="welcome home">';
   if(S.last !== null && S.last !== undefined) s += '<p class="recap">' + (S.last ? esc(S.last) + ' won that game' : 'Game over, no winner') + '</p>';
+  if(S.last && S.hist.length) s += '<button class="link sharelink" data-act="shareGame">\u2197 Share this game</button>';
   s += '<p class="wtitle">Ready to play?</p>';
   if(anyWins){
     s += '<p class="tally">' + S.names.map(function(n,i){ return esc(label(i)) + ' <b>' + (S.wins[wkey(i)] || 0) + '</b>'; }).join(' \u00b7 ') + '</p>';
@@ -1130,6 +1184,10 @@ document.addEventListener('click', function(e){
     if(S.sel && S.sel.c >= S.names.length) S.sel = null;
   } else if(a === 'remno'){
     S.confirmRemove = false;
+  } else if(a === 'shareGame'){
+    shareText(lastGameText()); return;
+  } else if(a === 'shareStats'){
+    shareText(standingsText()); return;
   } else if(a === 'statp'){
     S.statP = b.dataset.p; render(); syncNav(); window.scrollTo(0, 0); return;
   } else if(a === 'stats'){

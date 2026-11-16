@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Farkle">
 <meta name="theme-color" content="#ffffff">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -30,7 +34,9 @@
 }
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--felt);color:var(--text);font-family:var(--body);font-size:18px;line-height:1.4;-webkit-tap-highlight-color:transparent}
-body{min-height:100%}
+body{min-height:100%;padding-top:env(safe-area-inset-top)}
+#app::after{content:"";display:block;height:env(safe-area-inset-bottom)}
+body::before{content:"";position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top);background:#fff;z-index:60;pointer-events:none}
 button,input{font:inherit;color:inherit}
 button{cursor:pointer;touch-action:manipulation}
 :focus-visible{outline:3px solid var(--navy);outline-offset:2px}
@@ -50,7 +56,7 @@ button{cursor:pointer;touch-action:manipulation}
 .sheetlogo{margin-bottom:12px}
 .homebtn{flex:0 0 auto;min-height:48px;padding:0 18px;border-radius:12px;border:2px solid var(--line);background:#fff;font-weight:800;font-size:19px;color:var(--navy)}
 .logo img{display:block;width:100%;height:auto;max-height:104px;object-fit:contain}
-.head{position:sticky;top:0;z-index:5;background:var(--felt);padding-bottom:8px;border-bottom:2px solid var(--line)}
+.head{position:sticky;top:env(safe-area-inset-top);z-index:5;background:var(--felt);padding-bottom:8px;border-bottom:2px solid var(--line)}
 .grid{display:grid;gap:6px;align-items:center}
 .rn{font-size:14px;font-weight:700;color:var(--muted);text-align:center}
 
@@ -252,7 +258,7 @@ function sortedRoster(){ return S.roster.slice().sort(function(a,b){ var x=a.toL
 function maxP(){ var w = Math.min(window.innerWidth || 390, 1000); return Math.max(2, Math.min(10, Math.floor((w - 26) / 54))); }
 var S = {names:['',''], rows:[['','']], wins:{}, target:10000, dismissed:false, prev:null,
          ask:false, ok:true, sel:null, fresh:false, typing:false, focusName:null, mute:0, welcome:false, home:false, kbT:0, homeNav:false, confirmRemove:false, moreGroups:false, last:null, confirmClear:false, updated:0, editRoster:false,
-         roster:[], groups:[], picking:false, pickSel:[], hist:[], stats:false, statP:null, pre:null, neg:false, last:''};
+         roster:[], groups:[], picking:false, pickSel:[], hist:[], stats:false, statP:null, nameOrig:null, pre:null, neg:false, last:''};
 
 function save(){
   S.updated = Date.now();
@@ -289,6 +295,34 @@ function inListCI(arr, n){
   var k = String(n).trim().toLowerCase();
   for(var i=0;i<arr.length;i++){ if(String(arr[i]).trim().toLowerCase() === k) return i; }
   return -1;
+}
+function lev(a, b){
+  var m = a.length, n = b.length, d = [], i, j;
+  for(i = 0; i <= m; i++){ d[i] = [i]; }
+  for(j = 1; j <= n; j++){ d[0][j] = j; }
+  for(i = 1; i <= m; i++) for(j = 1; j <= n; j++){
+    d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + (a.charAt(i-1) === b.charAt(j-1) ? 0 : 1));
+  }
+  return d[m][n];
+}
+/* fixing a typo in a name keeps that person's wins and history; a completely different name starts fresh */
+function carryRename(idx){
+  var o = S.nameOrig; S.nameOrig = null;
+  if(!o || o.i !== idx) return;
+  var orig = o.v, now = String(S.names[idx] || '').trim();
+  if(!orig || !now || DEF.test(orig) || orig.toLowerCase() === now.toLowerCase()) return;
+  var a = orig.toLowerCase(), b = now.toLowerCase(), dist = lev(a, b);
+  if(dist > 2 || dist >= Math.max(a.length, b.length)) return;
+  if(S.names.some(function(n, j){ return j !== idx && String(n).trim().toLowerCase() === a; })) return;
+  if(S.wins[a]){ S.wins[b] = (S.wins[b] || 0) + S.wins[a]; }
+  delete S.wins[a];
+  S.hist.forEach(function(g){
+    g.n = g.n.map(function(n){ return String(n).trim().toLowerCase() === a ? now : n; });
+    if(String(g.w).trim().toLowerCase() === a) g.w = now;
+  });
+  S.groups = S.groups.map(function(g){ return g.map(function(n){ return String(n).trim().toLowerCase() === a ? now : n; }); });
+  var ri = inListCI(S.roster, orig);
+  if(ri > -1){ if(inListCI(S.roster, now) > -1) S.roster.splice(ri, 1); else S.roster[ri] = now; }
 }
 function rememberNames(){
   S.names.forEach(function(n){
@@ -362,8 +396,7 @@ function rowsHtml(){
 
 function hasAnyScore(){ return S.rows.some(function(r){ return r.some(function(v){ return String(v).trim() !== ''; }); }); }
 function updateTotals(){
-  var on = hasAnyScore(), w = document.getElementById('ngwrap'), cp = document.getElementById('chgp');
-  if(w) w.hidden = !on;
+  var on = hasAnyScore(), cp = document.getElementById('chgp');
   if(cp) cp.hidden = on;
   fitAll();
   var t = totals(), max = Math.max.apply(null, t);
@@ -722,9 +755,6 @@ function render(){
   h += '</div><div class="grid" style="' + cols() + '"><span class="rn">Wins</span>';
   S.names.forEach(function(n,c){ h += '<div class="wins">' + (S.wins[wkey(c)] || 0) + '</div>'; });
   h += '</div></div><div class="rows" id="rows">' + rowsHtml() + '</div>';
-  var started = hasAnyScore();
-  h += '<div class="stackb pair" id="ngwrap"' + (started ? '' : ' hidden') + '><button class="big" data-act="newgame"><span>New game</span><small>same players</small></button>';
-  h += '<button class="big alt" data-act="picker"><span>New game</span><small>different players</small></button></div>';
   if(S.ask){
     h += '<div class="ask" role="group" aria-label="Who won?"><p>Who won?</p><div class="opts">';
     S.names.forEach(function(n,c){ h += '<button class="btn' + (c === li && max > 0 ? ' lead' : '') + '" data-act="winner" data-c="' + c + '">' + esc(label(c)) + '</button>'; });
@@ -823,8 +853,7 @@ function finishGame(winner){
     // give unnamed players their default name first so wins stay with the right person after reordering
     S.names = S.names.map(function(n,i){ return n.trim() || 'Player ' + (i+1); });
     var k = wkey(winner); S.wins[k] = (S.wins[k] || 0) + 1;
-    var w = S.names.splice(winner, 1)[0];
-    S.names.unshift(w);
+    S.names = S.names.slice(winner).concat(S.names.slice(0, winner));
   }
   rememberNames();
   recordGroup(S.names);
@@ -964,6 +993,7 @@ function cancelEdit(){
 document.addEventListener('focusin', function(e){
   var t = e.target;
   if(t.tagName === 'INPUT'){
+    if(t.dataset && t.dataset.name !== undefined && !S.nameOrig){ S.nameOrig = {i:Number(t.dataset.name), v:String(S.names[Number(t.dataset.name)] || '').trim()}; }
     S.typing = true;
     if(S.sel){ S.sel = null; renderRows(); }
     renderDock();
@@ -1030,7 +1060,7 @@ document.addEventListener('focusout', function(e){
     setTimeout(function(){ try{ fe.focus({preventScroll:true}); }catch(err){} }, 0);
     return;
   }
-  if(e.target.dataset && e.target.dataset.name !== undefined){ rememberNames(); save(); }
+  if(e.target.dataset && e.target.dataset.name !== undefined){ carryRename(Number(e.target.dataset.name)); rememberNames(); save(); updateTotals(); var wl = document.querySelectorAll('.wins'); S.names.forEach(function(n,c){ if(wl[c]) wl[c].textContent = (S.wins[wkey(c)] || 0); }); }
   if(e.target.tagName === 'INPUT'){
     S.typing = false;
     renderDock();
@@ -1170,7 +1200,7 @@ document.addEventListener('click', function(e){
         if(typeof S.prev.hl === 'number') S.hist = S.hist.slice(0, S.prev.hl);
       }
     }
-    S.prev = null; S.home = false; S.homeNav = false; S.last = null;
+    S.prev = null; S.home = true; S.homeNav = true; S.stats = false; S.statP = null; S.last = null; S.ask = false; S.sel = null;
   }
   save();
   render();

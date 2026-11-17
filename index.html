@@ -1016,7 +1016,7 @@ function press(k){
   var s = S.sel;
   if(!s) return;
   var cur = String(S.rows[s.r][s.c]);
-  if(k === 'done'){ cancelEdit(); S.sel = null; renderRows(); renderDock(); return; }
+  if(k === 'done'){ cancelEdit(); S.sel = null; renderRows(); renderDock(); if(bannerOn()) showCele(); return; }
   if(k === 'next'){ if(!editOk()) return; S.pre = null; S.neg = false; advance(); return; }
   if(k === 'farkle'){ S.pre = null; S.neg = false; setCell('F'); advance(); return; }
   if(k === 'bs'){

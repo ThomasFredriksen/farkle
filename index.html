@@ -264,10 +264,28 @@ var S = {names:['',''], rows:[['','']], wins:{}, target:10000, dismissed:false, 
          ask:false, ok:true, sel:null, fresh:false, typing:false, focusName:null, mute:0, welcome:false, home:false, kbT:0, homeNav:false, confirmRemove:false, moreGroups:false, last:null, confirmClear:false, updated:0, editRoster:false,
          roster:[], groups:[], picking:false, pickSel:[], hist:[], stats:false, statP:null, nameOrig:null, pre:null, neg:false, last:''};
 
+function idbOpen(cb){
+  try{
+    var r = indexedDB.open('farkle', 1);
+    r.onupgradeneeded = function(){ r.result.createObjectStore('kv'); };
+    r.onsuccess = function(){ cb(r.result); };
+    r.onerror = function(){ cb(null); };
+  }catch(e){ cb(null); }
+}
+function idbPut(val){ idbOpen(function(db){ if(!db) return; try{ db.transaction('kv', 'readwrite').objectStore('kv').put(val, 'state'); }catch(e){} }); }
+function idbGet(cb){
+  idbOpen(function(db){
+    if(!db) return cb(null);
+    try{ var q = db.transaction('kv', 'readonly').objectStore('kv').get('state'); q.onsuccess = function(){ cb(q.result || null); }; q.onerror = function(){ cb(null); }; }
+    catch(e){ cb(null); }
+  });
+}
 function save(){
   S.updated = Date.now();
   try{
-    localStorage.setItem(KEY, JSON.stringify({names:S.names, rows:S.rows, wins:S.wins, target:S.target, dismissed:S.dismissed, prev:S.prev, roster:S.roster, groups:S.groups, hist:S.hist, updated:S.updated}));
+    var json = JSON.stringify({names:S.names, rows:S.rows, wins:S.wins, target:S.target, dismissed:S.dismissed, prev:S.prev, roster:S.roster, groups:S.groups, hist:S.hist, updated:S.updated});
+    localStorage.setItem(KEY, json);
+    idbPut(json);
     S.ok = true;
   }catch(e){ S.ok = false; }
 }
@@ -1267,6 +1285,16 @@ document.addEventListener('click', function(e){
 
 load();
 render();
+try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist(); }catch(e){}
+/* second copy of the scores: if the phone ever empties the first one, bring it back */
+if(!localStorage.getItem(KEY)){
+  idbGet(function(v){
+    if(!v || localStorage.getItem(KEY) || S.updated) return;
+    try{ localStorage.setItem(KEY, v); }catch(e){ return; }
+    S.picking = false; S.home = false; S.welcome = false;
+    load(); render(); syncNav();
+  });
+}
 })();
 </script>
 <script>if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){});});}</script>

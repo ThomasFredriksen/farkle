@@ -1,4 +1,4 @@
-var C = "farkle-v4";
+var C = "farkle-v5";
 var FILES = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png", "apple-touch-icon.png", "icon-maskable-512.png", "fonts/figtree-400.woff2", "fonts/figtree-600.woff2", "fonts/figtree-700.woff2", "fonts/figtree-800.woff2", "fonts/figtree-900.woff2"];
 self.addEventListener("install", function(e){ e.waitUntil(caches.open(C).then(function(c){ return c.addAll(FILES); }).then(function(){ return self.skipWaiting(); })); });
 self.addEventListener("activate", function(e){ e.waitUntil(caches.keys().then(function(k){ return Promise.all(k.filter(function(n){ return n !== C; }).map(function(n){ return caches.delete(n); })); }).then(function(){ return self.clients.claim(); })); });
